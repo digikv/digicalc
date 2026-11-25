@@ -5,3 +5,4 @@ tests/dctest
 digicalc
 !digicalc/
 *.log
+PLAN.md
