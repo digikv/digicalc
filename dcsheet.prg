@@ -73,15 +73,15 @@ RETURN hb_HGetDef( ::hCells, DC_Key( nCol, nRow ), NIL )
 
 METHOD value( nCol, nRow ) CLASS DCSheet
    LOCAL aC := hb_HGetDef( ::hCells, DC_Key( nCol, nRow ), NIL )
-RETURN IIF( aC == NIL, NIL, aC[ CELL_VALUE ] )
+RETURN IIF( HB_ISNIL( aC ), NIL, aC[ CELL_VALUE ] )
 
 /* the entry line: a formula in Excel (=SUM(A1:A5)) or 1-2-3 (@SUM(A1..A5)) form */
 METHOD input( nCol, nRow, lLotus ) CLASS DCSheet
    LOCAL aC := ::cell( nCol, nRow ), c
-   IF aC == NIL
+   IF HB_ISNIL( aC )
       RETURN ""
    ENDIF
-   IF aC[ CELL_AST ] != NIL
+   IF ! HB_ISNIL( aC[ CELL_AST ] )
       IF hb_defaultValue( lLotus, .F. )
          c := DC_AstText( aC[ CELL_AST ], .T. )
          /* 1-2-3: a formula starts with + when it would read as a label */
@@ -103,7 +103,7 @@ METHOD setInput( nCol, nRow, cText, cErr ) CLASS DCSheet
 
    cErr := ""
    aC := hb_HGetDef( ::hCells, nKey, NIL )
-   IF aC != NIL
+   IF ! HB_ISNIL( aC )
       cFmt := aC[ CELL_FMT ]
       cAlign := aC[ CELL_ALIGN ]
    ENDIF
@@ -116,14 +116,14 @@ METHOD setInput( nCol, nRow, cText, cErr ) CLASS DCSheet
    DO CASE
    CASE cFirst == "="
       xAst := DC_Parse( SubStr( cText, 2 ), @cErr )
-      IF xAst == NIL
+      IF HB_ISNIL( xAst )
          RETURN .F.
       ENDIF
    CASE DC_IsNumText( cText )
       xVal := DC_Val( cText )
    CASE cFirst $ "+-(@.0123456789$#"
       xAst := DC_Parse( cText, @cErr )
-      IF xAst == NIL
+      IF HB_ISNIL( xAst )
          RETURN .F.
       ENDIF
    CASE cFirst $ "'" + '"^'
@@ -137,7 +137,7 @@ METHOD setInput( nCol, nRow, cText, cErr ) CLASS DCSheet
    aC := Array( CELL_LEN )
    aC[ CELL_FMT ] := cFmt
    aC[ CELL_ALIGN ] := cAlign
-   IF xAst != NIL
+   IF ! HB_ISNIL( xAst )
       aC[ CELL_AST ] := xAst
       aC[ CELL_INPUT ] := "=" + DC_AstText( xAst )
       ::hCells[ nKey ] := aC
@@ -166,7 +166,7 @@ METHOD setCell( nCol, nRow, xValue, cFormula ) CLASS DCSheet
    IF ! Empty( cFormula )
       xAst := DC_Parse( cFormula, @cErr )
    ENDIF
-   IF xAst != NIL
+   IF ! HB_ISNIL( xAst )
       aC[ CELL_AST ] := xAst
       aC[ CELL_INPUT ] := "=" + DC_AstText( xAst )
       ::link( nKey, xAst )
@@ -191,7 +191,7 @@ RETURN NIL
 
 METHOD setFormat( nCol, nRow, cFmt ) CLASS DCSheet
    LOCAL aC := ::cell( nCol, nRow )
-   IF aC == NIL
+   IF HB_ISNIL( aC )
       aC := Array( CELL_LEN )
       aC[ CELL_INPUT ] := ""
       aC[ CELL_ALIGN ] := ""
@@ -203,7 +203,7 @@ RETURN NIL
 
 METHOD setAlign( nCol, nRow, cAlign ) CLASS DCSheet
    LOCAL aC := ::cell( nCol, nRow )
-   IF aC != NIL
+   IF ! HB_ISNIL( aC )
       aC[ CELL_ALIGN ] := cAlign
       ::lModified := .T.
    ENDIF
@@ -213,7 +213,7 @@ METHOD colWidth( nCol ) CLASS DCSheet
 RETURN hb_HGetDef( ::hColW, nCol, ::nDefWidth )
 
 METHOD setColWidth( nCol, nWidth ) CLASS DCSheet
-   IF nWidth == NIL
+   IF HB_ISNIL( nWidth )
       hb_HDel( ::hColW, nCol )
    ELSE
       ::hColW[ nCol ] := Max( 1, Min( 240, nWidth ) )
@@ -240,7 +240,7 @@ RETURN n
 /* forget what the formula in nKey used */
 METHOD unlink( nKey ) CLASS DCSheet
    LOCAL aC := hb_HGetDef( ::hCells, nKey, NIL ), x, k, i
-   IF aC == NIL .OR. aC[ CELL_AST ] == NIL
+   IF HB_ISNIL( aC ) .OR. HB_ISNIL( aC[ CELL_AST ] )
       RETURN NIL
    ENDIF
    FOR EACH x IN DC_AstRefs( aC[ CELL_AST ] )
@@ -302,7 +302,7 @@ METHOD recalc( aKeys ) CLASS DCSheet
       IF hb_HHasKey( ::hDirty, nKey )
          LOOP
       ENDIF
-      IF hb_HHasKey( ::hCells, nKey ) .AND. ::hCells[ nKey ][ CELL_AST ] != NIL
+      IF hb_HHasKey( ::hCells, nKey ) .AND. ! HB_ISNIL( ::hCells[ nKey ][ CELL_AST ] )
          ::hDirty[ nKey ] := .T.
       ELSE
          ::hDirty[ nKey ] := .F.            /* a constant: only its dependents */
@@ -329,7 +329,7 @@ RETURN NIL
 METHOD recalcAll() CLASS DCSheet
    LOCAL aKeys := {}, k
    FOR EACH k IN hb_HKeys( ::hCells )
-      IF ::hCells[ k ][ CELL_AST ] != NIL
+      IF ! HB_ISNIL( ::hCells[ k ][ CELL_AST ] )
          AAdd( aKeys, k )
       ENDIF
    NEXT
@@ -344,7 +344,7 @@ METHOD compute( nKey ) CLASS DCSheet
       RETURN NIL
    ENDIF
    ::hBusy[ nKey ] := .T.
-   aC[ CELL_VALUE ] := DC_Eval( aC[ CELL_AST ], Self )
+   aC[ CELL_VALUE ] := DC_SafeEval( aC[ CELL_AST ], Self )
    /* NaN is not equal to itself; infinity is beyond any double */
    IF HB_ISNUMERIC( aC[ CELL_VALUE ] ) .AND. ( !( aC[ CELL_VALUE ] == aC[ CELL_VALUE ] ) .OR. Abs( aC[ CELL_VALUE ] ) > 10 ^ 308 )
       aC[ CELL_VALUE ] := DC_Err( "#NUM!" )
@@ -355,23 +355,35 @@ METHOD compute( nKey ) CLASS DCSheet
    ENDIF
 RETURN NIL
 
+/* a run time error in a formula (a bug, a strange argument) is #VALUE! in the
+   cell, never the end of the program */
+STATIC FUNCTION DC_SafeEval( xAst, oCtx )
+   LOCAL xVal, bOld := ErrorBlock( {| e | Break( e ) } )
+   BEGIN SEQUENCE
+      xVal := DC_Eval( xAst, oCtx )
+   RECOVER
+      xVal := DC_Err( "#VALUE!" )
+   END SEQUENCE
+   ErrorBlock( bOld )
+RETURN xVal
+
 /* the value of a cell for a formula: computed first when it is still to compute */
 METHOD evalCell( nCol, nRow ) CLASS DCSheet
    LOCAL nKey := DC_Key( nCol, nRow ), aC
-   IF ::hDirty != NIL .AND. hb_HHasKey( ::hDirty, nKey )
+   IF ! HB_ISNIL( ::hDirty ) .AND. hb_HHasKey( ::hDirty, nKey )
       IF hb_HHasKey( ::hBusy, nKey )
          RETURN DC_Err( "#CIRC!" )
       ENDIF
       ::compute( nKey )
-   ELSEIF ::hBusy != NIL .AND. hb_HHasKey( ::hBusy, nKey )
+   ELSEIF ! HB_ISNIL( ::hBusy ) .AND. hb_HHasKey( ::hBusy, nKey )
       RETURN DC_Err( "#CIRC!" )
    ENDIF
    aC := hb_HGetDef( ::hCells, nKey, NIL )
-RETURN IIF( aC == NIL, NIL, aC[ CELL_VALUE ] )
+RETURN IIF( HB_ISNIL( aC ), NIL, aC[ CELL_VALUE ] )
 
 METHOD evalName( cName ) CLASS DCSheet
    LOCAL x := hb_HGetDef( ::hNames, cName, NIL )
-   IF x == NIL
+   IF HB_ISNIL( x )
       RETURN DC_Err( "#NAME?" )
    ENDIF
 RETURN DC_Eval( x, Self )

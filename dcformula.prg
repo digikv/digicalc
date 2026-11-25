@@ -187,7 +187,7 @@ FUNCTION DC_Tokens( cExpr, cErr )
             AAdd( aTok, { "FUNC", DC_FuncAlias( Upper( cWord ) ), lAt } )
          CASE lAt                     /* 1-2-3 functions without arguments: @PI @NOW @TODAY @NA @ERR @RAND */
             AAdd( aTok, { "FUNC0", DC_FuncAlias( Upper( cWord ) ), .T. } )
-         CASE DC_ParseRef( cWord ) != NIL
+         CASE ! HB_ISNIL( DC_ParseRef( cWord ) )
             AAdd( aTok, { "REF", DC_ParseRef( cWord ) } )
          CASE Upper( cWord ) == "TRUE" .OR. Upper( cWord ) == "FALSE"
             AAdd( aTok, { "BOOL", Upper( cWord ) == "TRUE" } )
@@ -278,7 +278,7 @@ FUNCTION DC_Parse( cExpr, cErr )
 
    LOCAL aTok := DC_Tokens( cExpr, @cErr ), aP, xAst
 
-   IF aTok == NIL
+   IF HB_ISNIL( aTok )
       RETURN NIL
    ENDIF
    IF Empty( aTok )
@@ -477,7 +477,7 @@ RETURN NIL
    @FV(pmt,i,n)       -> -FV(i,n,pmt)
    @MOD @ROUND @IF ... are the same */
 STATIC FUNCTION DC_LotusFunc( cName, aA )
-   LOCAL bPlus1 := {| x | IIF( x != NIL .AND. x[ 1 ] == "N", { "N", x[ 2 ] + 1 }, { "O", "+", x, { "N", 1 } } ) }
+   LOCAL bPlus1 := {| x | IIF( ! HB_ISNIL( x ) .AND. x[ 1 ] == "N", { "N", x[ 2 ] + 1 }, { "O", "+", x, { "N", 1 } } ) }
    SWITCH cName
    CASE "VLOOKUP"
    CASE "HLOOKUP"
@@ -521,7 +521,7 @@ FUNCTION DC_AstText( x, lLotus )
    LOCAL c, a, cName
 
    lLotus := hb_defaultValue( lLotus, .F. )
-   IF x == NIL
+   IF HB_ISNIL( x )
       RETURN ""
    ENDIF
    SWITCH x[ 1 ]
@@ -605,16 +605,16 @@ FUNCTION DC_AstShift( x, nDCol, nDRow )
 
    LOCAL y, i
 
-   IF x == NIL
+   IF HB_ISNIL( x )
       RETURN NIL
    ENDIF
    SWITCH x[ 1 ]
    CASE "R"
       y := RefShift( x[ 2 ], nDCol, nDRow )
-      RETURN IIF( y == NIL, { "E", "#REF!" }, { "R", y } )
+      RETURN IIF( HB_ISNIL( y ), { "E", "#REF!" }, { "R", y } )
    CASE "A"
       y := { RefShift( x[ 2 ], nDCol, nDRow ), RefShift( x[ 3 ], nDCol, nDRow ) }
-      RETURN IIF( y[ 1 ] == NIL .OR. y[ 2 ] == NIL, { "E", "#REF!" }, { "A", y[ 1 ], y[ 2 ] } )
+      RETURN IIF( HB_ISNIL( y[ 1 ] ) .OR. HB_ISNIL( y[ 2 ] ), { "E", "#REF!" }, { "A", y[ 1 ], y[ 2 ] } )
    ENDSWITCH
    y := AClone( x )
    FOR i := 2 TO Len( y )
@@ -645,8 +645,8 @@ RETURN a
 /* every reference in the AST: { { "R", aRef } | { "A", a1, a2 } | { "NM", c } ... } */
 FUNCTION DC_AstRefs( x, aOut )
    LOCAL i
-   aOut := IIF( aOut == NIL, {}, aOut )
-   IF x == NIL
+   aOut := IIF( HB_ISNIL( aOut ), {}, aOut )
+   IF HB_ISNIL( x )
       RETURN aOut
    ENDIF
    SWITCH x[ 1 ]
@@ -673,7 +673,7 @@ FUNCTION DC_Eval( x, oCtx )
 
    LOCAL a, b
 
-   IF x == NIL
+   IF HB_ISNIL( x )
       RETURN NIL
    ENDIF
    SWITCH x[ 1 ]
@@ -783,10 +783,10 @@ FUNCTION DC_Compare( a, b )
    IF nA != nB
       RETURN IIF( nA < nB, -1, 1 )
    ENDIF
-   IF a == NIL
+   IF HB_ISNIL( a )
       a := IIF( HB_ISSTRING( b ), "", IIF( HB_ISLOGICAL( b ), .F., 0 ) )
    ENDIF
-   IF b == NIL
+   IF HB_ISNIL( b )
       b := IIF( HB_ISSTRING( a ), "", IIF( HB_ISLOGICAL( a ), .F., 0 ) )
    ENDIF
    IF HB_ISSTRING( a )
@@ -799,7 +799,7 @@ FUNCTION DC_Compare( a, b )
 RETURN IIF( a == b, 0, IIF( a < b, -1, 1 ) )
 
 STATIC FUNCTION DC_TypeRank( x, xOther )
-   IF x == NIL
+   IF HB_ISNIL( x )
       RETURN DC_TypeRank( xOther, 0 )
    ENDIF
 RETURN IIF( HB_ISNUMERIC( x ), 1, IIF( HB_ISSTRING( x ), 2, 3 ) )
@@ -807,7 +807,7 @@ RETURN IIF( HB_ISNUMERIC( x ), 1, IIF( HB_ISSTRING( x ), 2, 3 ) )
 /* coercions: empty -> 0 / "" / .F.; a text that is a number -> the number */
 FUNCTION DC_ToNum( x )
    DO CASE
-   CASE x == NIL
+   CASE HB_ISNIL( x )
       RETURN 0
    CASE HB_ISNUMERIC( x )
       RETURN x
@@ -825,7 +825,7 @@ RETURN DC_Err( "#VALUE!" )
 
 FUNCTION DC_ToText( x )
    DO CASE
-   CASE x == NIL
+   CASE HB_ISNIL( x )
       RETURN ""
    CASE HB_ISSTRING( x )
       RETURN x
@@ -840,7 +840,7 @@ RETURN ""
 
 FUNCTION DC_ToLog( x )
    DO CASE
-   CASE x == NIL
+   CASE HB_ISNIL( x )
       RETURN .F.
    CASE HB_ISLOGICAL( x )
       RETURN x

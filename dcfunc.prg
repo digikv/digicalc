@@ -41,7 +41,7 @@ FUNCTION DC_CallFunc( cName, aArgs, oCtx )
    CASE "COUNTA"
       n := 0
       FOR EACH x IN Flat( aArgs, oCtx )
-         IF x != NIL .AND. !( HB_ISSTRING( x ) .AND. Empty( x ) )
+         IF ! HB_ISNIL( x ) .AND. !( HB_ISSTRING( x ) .AND. Empty( x ) )
             n++
          ENDIF
       NEXT
@@ -52,7 +52,7 @@ FUNCTION DC_CallFunc( cName, aArgs, oCtx )
       ENDIF
       n := ( aArgs[ 1 ][ 3 ][ 1 ] - aArgs[ 1 ][ 2 ][ 1 ] + 1 ) * ( aArgs[ 1 ][ 3 ][ 2 ] - aArgs[ 1 ][ 2 ][ 2 ] + 1 )
       FOR EACH x IN oCtx:areaValues( aArgs[ 1 ][ 2 ], aArgs[ 1 ][ 3 ] )
-         IF x != NIL .AND. !( HB_ISSTRING( x ) .AND. Empty( x ) )
+         IF ! HB_ISNIL( x ) .AND. !( HB_ISSTRING( x ) .AND. Empty( x ) )
             n--
          ENDIF
       NEXT
@@ -72,9 +72,9 @@ FUNCTION DC_CallFunc( cName, aArgs, oCtx )
          RETURN x
       ENDIF
       IF x
-         RETURN IIF( aArgs[ 2 ] == NIL, 0, Arg( aArgs, 2, oCtx ) )
+         RETURN IIF( HB_ISNIL( aArgs[ 2 ] ), 0, Arg( aArgs, 2, oCtx ) )
       ENDIF
-      RETURN IIF( nArgs < 3, .F., IIF( aArgs[ 3 ] == NIL, 0, Arg( aArgs, 3, oCtx ) ) )
+      RETURN IIF( nArgs < 3, .F., IIF( HB_ISNIL( aArgs[ 3 ] ), 0, Arg( aArgs, 3, oCtx ) ) )
    CASE "IFERROR"
       x := Arg( aArgs, 1, oCtx )
       RETURN IIF( DC_IsErr( x ), Arg( aArgs, 2, oCtx ), x )
@@ -85,7 +85,7 @@ FUNCTION DC_CallFunc( cName, aArgs, oCtx )
          IF DC_IsErr( x )
             RETURN x
          ENDIF
-         IF x == NIL .OR. HB_ISSTRING( x )
+         IF HB_ISNIL( x ) .OR. HB_ISSTRING( x )
             LOOP
          ENDIF
          x := DC_ToLog( x )
@@ -110,7 +110,7 @@ FUNCTION DC_CallFunc( cName, aArgs, oCtx )
    CASE "ISSTRING"
       RETURN HB_ISSTRING( Arg( aArgs, 1, oCtx ) )
    CASE "ISBLANK"
-      RETURN Arg( aArgs, 1, oCtx ) == NIL
+      RETURN HB_ISNIL( Arg( aArgs, 1, oCtx ) )
    CASE "NA"
       RETURN DC_Err( "#N/A" )
    CASE "ERROR"
@@ -379,11 +379,11 @@ RETURN DC_Err( "#NAME?" )
 /*------------------------------------------------------------ helpers */
 
 STATIC FUNCTION Arg( aArgs, n, oCtx )
-RETURN IIF( n > Len( aArgs ) .OR. aArgs[ n ] == NIL, NIL, DC_Eval( aArgs[ n ], oCtx ) )
+RETURN IIF( n > Len( aArgs ) .OR. HB_ISNIL( aArgs[ n ] ), NIL, DC_Eval( aArgs[ n ], oCtx ) )
 
 /* the cell of @N / @S: the first cell of an area too */
 STATIC FUNCTION FirstCell( aArgs, oCtx )
-   IF Len( aArgs ) >= 1 .AND. aArgs[ 1 ] != NIL .AND. aArgs[ 1 ][ 1 ] == "A"
+   IF Len( aArgs ) >= 1 .AND. ! HB_ISNIL( aArgs[ 1 ] ) .AND. aArgs[ 1 ][ 1 ] == "A"
       RETURN oCtx:evalCell( aArgs[ 1 ][ 2 ][ 1 ], aArgs[ 1 ][ 2 ][ 2 ] )
    ENDIF
 RETURN Arg( aArgs, 1, oCtx )
@@ -397,7 +397,7 @@ STATIC FUNCTION Flat( aArgs, oCtx, lAll )
    LOCAL aOut := {}, x
    HB_SYMBOL_UNUSED( lAll )
    FOR EACH x IN aArgs
-      IF x == NIL
+      IF HB_ISNIL( x )
          LOOP
       ENDIF
       IF x[ 1 ] == "A"
@@ -415,13 +415,13 @@ STATIC FUNCTION Agg( aArgs, oCtx, cKind )
    LOCAL aNum := {}, x, v, nSum := 0, nMean, nVar := 0
 
    FOR EACH x IN aArgs
-      IF x == NIL
+      IF HB_ISNIL( x )
          LOOP
       ENDIF
       IF x[ 1 ] == "A" .OR. x[ 1 ] == "R"
          FOR EACH v IN IIF( x[ 1 ] == "A", oCtx:areaValues( x[ 2 ], x[ 3 ] ), { DC_Eval( x, oCtx ) } )
             IF DC_IsErr( v )
-               RETURN IIF( cKind == "COUNT", 0, v ) + 0 * 0
+               RETURN IIF( cKind == "COUNT", 0, v )
             ENDIF
             IF HB_ISNUMERIC( v )
                AAdd( aNum, v )
@@ -487,19 +487,19 @@ STATIC FUNCTION CondAgg( cName, aArgs, oCtx )
 
    LOCAL aR, aS, xCrit, nRow, nCol, v, nSum := 0, nCnt := 0, aSumA
 
-   IF Len( aArgs ) < 2 .OR. aArgs[ 1 ] == NIL .OR. !( aArgs[ 1 ][ 1 ] $ "A|R" )
+   IF Len( aArgs ) < 2 .OR. HB_ISNIL( aArgs[ 1 ] ) .OR. !( aArgs[ 1 ][ 1 ] $ "A|R" )
       RETURN DC_Err( "#VALUE!" )
    ENDIF
    aR := AreaOf( aArgs[ 1 ] )
    xCrit := Arg( aArgs, 2, oCtx )
    aSumA := aR
-   IF Len( aArgs ) > 2 .AND. aArgs[ 3 ] != NIL .AND. aArgs[ 3 ][ 1 ] $ "A|R"
+   IF Len( aArgs ) > 2 .AND. ! HB_ISNIL( aArgs[ 3 ] ) .AND. aArgs[ 3 ][ 1 ] $ "A|R"
       aS := AreaOf( aArgs[ 3 ] )
       aSumA := { aS[ 1 ], { aS[ 1 ][ 1 ] + aR[ 2 ][ 1 ] - aR[ 1 ][ 1 ], aS[ 1 ][ 2 ] + aR[ 2 ][ 2 ] - aR[ 1 ][ 2 ] } }
    ENDIF
    FOR nRow := aR[ 1 ][ 2 ] TO aR[ 2 ][ 2 ]
       FOR nCol := aR[ 1 ][ 1 ] TO aR[ 2 ][ 1 ]
-         IF oCtx:cell( nCol, nRow ) == NIL .AND. !( HB_ISSTRING( xCrit ) .AND. Empty( xCrit ) )
+         IF HB_ISNIL( oCtx:cell( nCol, nRow ) ) .AND. !( HB_ISSTRING( xCrit ) .AND. Empty( xCrit ) )
             LOOP
          ENDIF
          IF CritMatch( oCtx:evalCell( nCol, nRow ), xCrit )
@@ -538,7 +538,7 @@ STATIC FUNCTION CritMatch( v, xCrit )
    IF cOp == "=" .OR. cOp == "<>"
       IF HB_ISSTRING( xVal )
          n := HB_ISSTRING( v ) .AND. hb_WildMatchI( xVal, v, .T. )
-         IF v == NIL .AND. Empty( xVal )
+         IF HB_ISNIL( v ) .AND. Empty( xVal )
             n := .T.
          ENDIF
       ELSE
@@ -567,7 +567,7 @@ RETURN IIF( DC_IsErr( x ), x, Eval( bDo, x ) )
 
 STATIC FUNCTION Num2( aArgs, oCtx, bDo, xDef2 )
    LOCAL x, y
-   IF Len( aArgs ) < IIF( xDef2 == NIL, 2, 1 )
+   IF Len( aArgs ) < IIF( HB_ISNIL( xDef2 ), 2, 1 )
       RETURN DC_Err( "#VALUE!" )
    ENDIF
    x := DC_ToNum( Arg( aArgs, 1, oCtx ) )
@@ -628,7 +628,7 @@ STATIC FUNCTION Lookup( lV, aArgs, oCtx )
 
    LOCAL x, a, n, lApprox := .T., aM, i, nHit, nLen, v
 
-   IF Len( aArgs ) < 3 .OR. aArgs[ 2 ] == NIL .OR. !( aArgs[ 2 ][ 1 ] == "A" )
+   IF Len( aArgs ) < 3 .OR. HB_ISNIL( aArgs[ 2 ] ) .OR. !( aArgs[ 2 ][ 1 ] == "A" )
       RETURN DC_Err( "#N/A" )
    ENDIF
    x := Arg( aArgs, 1, oCtx )
@@ -641,7 +641,7 @@ STATIC FUNCTION Lookup( lV, aArgs, oCtx )
       RETURN n
    ENDIF
    n := Int( n )
-   IF Len( aArgs ) > 3 .AND. aArgs[ 4 ] != NIL
+   IF Len( aArgs ) > 3 .AND. ! HB_ISNIL( aArgs[ 4 ] )
       lApprox := DC_ToLog( Arg( aArgs, 4, oCtx ) )
       IF DC_IsErr( lApprox )
          RETURN lApprox
@@ -664,13 +664,13 @@ STATIC FUNCTION Lookup( lV, aArgs, oCtx )
       RETURN nHit
    ENDIF
    v := IIF( lV, oCtx:evalCell( a[ 1 ][ 1 ] + n - 1, a[ 1 ][ 2 ] + nHit - 1 ), oCtx:evalCell( a[ 1 ][ 1 ] + nHit - 1, a[ 1 ][ 2 ] + n - 1 ) )
-RETURN IIF( v == NIL, 0, v )
+RETURN IIF( HB_ISNIL( v ), 0, v )
 
 /* MATCH: 0 exact, 1 the largest <= x (sorted ascending), -1 the smallest >= x */
 STATIC FUNCTION MatchIn( x, aV, nType )
    LOCAL i, nBest := 0
    FOR i := 1 TO Len( aV )
-      IF aV[ i ] == NIL .OR. DC_IsErr( aV[ i ] )
+      IF HB_ISNIL( aV[ i ] ) .OR. DC_IsErr( aV[ i ] )
          LOOP
       ENDIF
       IF nType == 0
@@ -700,7 +700,7 @@ STATIC FUNCTION Finance( cName, aArgs, oCtx )
    LOCAL r, n, p, f := 0, t := 0, a := {}, x, v, q
 
    FOR EACH x IN aArgs               /* x is the array element: not assigned */
-      v := IIF( x == NIL, 0, DC_ToNum( DC_Eval( x, oCtx ) ) )
+      v := IIF( HB_ISNIL( x ), 0, DC_ToNum( DC_Eval( x, oCtx ) ) )
       IF DC_IsErr( v )
          RETURN v
       ENDIF

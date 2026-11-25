@@ -1,0 +1,18 @@
+# DigiCalc - spreadsheet in character mode (Harbour-CUI)
+#   Windows: build.bat     Linux: ./build.sh
+#   or: hbmk2 digicalc.hbp   (Harbour 3.2.1, the Harbour-CUI library built)
+# Harbour-CUI in ../Harbour-CUI, the XLSX class in ../xlsx (next to this folder).
+
+-w3 -es2
+-odigicalc
+
+../Harbour-CUI/hbtui.hbc
+hbct.hbc
+
+digicalc.prg
+dcgrid.prg
+dcsheet.prg
+dcformula.prg
+dcfunc.prg
+
+{unix}-lX11

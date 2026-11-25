@@ -140,11 +140,11 @@ PROCEDURE Main()
 
 STATIC FUNCTION Txt( c )
    LOCAL cErr, x := DC_Parse( c, @cErr )
-RETURN IIF( x == NIL, "ERR: " + cErr, DC_AstText( x ) )
+RETURN IIF( HB_ISNIL( x ), "ERR: " + cErr, DC_AstText( x ) )
 
 STATIC FUNCTION Lot( c )
    LOCAL cErr, x := DC_Parse( c, @cErr )
-RETURN IIF( x == NIL, "ERR: " + cErr, DC_AstText( x, .T. ) )
+RETURN IIF( HB_ISNIL( x ), "ERR: " + cErr, DC_AstText( x, .T. ) )
 
 STATIC FUNCTION ParseErr( c )
    LOCAL cErr := ""
