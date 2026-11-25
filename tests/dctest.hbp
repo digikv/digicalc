@@ -1,0 +1,10 @@
+# DigiCalc core tests (console):  hbmk2 dctest.hbp && dctest
+-w3 -es2
+-odctest
+-gtcgi
+-i..
+dctest.prg
+../dcformula.prg
+../dcsheet.prg
+../dcfunc.prg
+hbct.hbc

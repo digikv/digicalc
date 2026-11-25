@@ -1,0 +1,7 @@
+*.exe
+*.o
+.hbmk/
+tests/dctest
+digicalc
+!digicalc/
+*.log
