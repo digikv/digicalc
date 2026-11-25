@@ -5,14 +5,23 @@
 
 -w3 -es2
 -odigicalc
+{win}digicalc.rc
 
 ../Harbour-CUI/hbtui.hbc
 hbct.hbc
+hbmzip.hbc
+hbziparc.hbc
 
 digicalc.prg
 dcgrid.prg
 dcsheet.prg
 dcformula.prg
 dcfunc.prg
+dcfile.prg
+dcmenu.prg
+
+# the XLSX class (github.com/digikv/xlsx) in ../xlsx; without it no .xlsx (only .csv)
+{hb_ispath='../xlsx/XLSXClass.prg'}../xlsx/XLSXClass.prg
+{!hb_ispath='../xlsx/XLSXClass.prg'}-prgflag=-DDC_NO_XLSX
 
 {unix}-lX11

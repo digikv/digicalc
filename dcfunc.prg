@@ -15,6 +15,19 @@ FUNCTION DC_CallFunc( cName, aArgs, oCtx )
 
    LOCAL nArgs := Len( aArgs ), a, x, y, z, n, i, aV
 
+   /* a named range stands for its cells */
+   FOR i := 1 TO nArgs
+      IF ! HB_ISNIL( aArgs[ i ] ) .AND. aArgs[ i ][ 1 ] == "NM" .AND. hb_HHasKey( oCtx:hNames, aArgs[ i ][ 2 ] )
+         IF HB_ISNIL( a )
+            a := AClone( aArgs )
+         ENDIF
+         a[ i ] := oCtx:hNames[ aArgs[ i ][ 2 ] ]
+      ENDIF
+   NEXT
+   IF ! HB_ISNIL( a )
+      aArgs := a
+   ENDIF
+
    SWITCH cName
 
    /*---------------------------------------------- aggregates */
@@ -796,3 +809,11 @@ FUNCTION DC_FmtNumber( n, nDec, lComma )
       cInt := cOut
    ENDIF
 RETURN IIF( n < 0 .AND. Val( c ) != 0, "-", "" ) + cInt + cFrac
+
+/* the currency sign of the C format ("" none, "$", "€", " din" ...) */
+FUNCTION DC_Currency( cNew )
+   STATIC s_cCur := ""
+   IF HB_ISSTRING( cNew )
+      s_cCur := cNew
+   ENDIF
+RETURN s_cCur

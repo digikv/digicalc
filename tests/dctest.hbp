@@ -7,4 +7,8 @@ dctest.prg
 ../dcformula.prg
 ../dcsheet.prg
 ../dcfunc.prg
+../dcfile.prg
+../../xlsx/XLSXClass.prg
 hbct.hbc
+hbmzip.hbc
+hbziparc.hbc

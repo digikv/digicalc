@@ -906,3 +906,120 @@ FUNCTION DC_IsNumText( c )
       i++
    ENDDO
 RETURN lDig
+
+/*------------------------------------------------------------ structure changes */
+
+/* rows (lRows) or columns inserted (nDelta > 0) or deleted (nDelta < 0) at nAt:
+   every reference moves with its cell, absolute ones too; a reference to a
+   deleted cell becomes #REF!, an area shrinks */
+FUNCTION DC_AstAdjust( x, lRows, nAt, nDelta )
+
+   LOCAL y, i, n := IIF( lRows, 2, 1 ), a1, a2, nLast := nAt - nDelta - 1, c1, c2
+
+   IF HB_ISNIL( x )
+      RETURN NIL
+   ENDIF
+   SWITCH x[ 1 ]
+   CASE "R"
+      y := AClone( x[ 2 ] )
+      IF nDelta > 0
+         IF y[ n ] >= nAt
+            y[ n ] += nDelta
+         ENDIF
+      ELSEIF y[ n ] >= nAt
+         IF y[ n ] <= nLast
+            RETURN { "E", "#REF!" }
+         ENDIF
+         y[ n ] += nDelta
+      ENDIF
+      RETURN { "R", y }
+   CASE "A"
+      a1 := AClone( x[ 2 ] )
+      a2 := AClone( x[ 3 ] )
+      c1 := a1[ n ]
+      c2 := a2[ n ]
+      IF nDelta > 0
+         IF c1 >= nAt
+            c1 += nDelta
+         ENDIF
+         IF c2 >= nAt
+            c2 += nDelta
+         ENDIF
+      ELSE
+         IF c1 >= nAt .AND. c2 <= nLast
+            RETURN { "E", "#REF!" }
+         ENDIF
+         c1 := IIF( c1 < nAt, c1, IIF( c1 > nLast, c1 + nDelta, nAt ) )
+         c2 := IIF( c2 < nAt, c2, IIF( c2 > nLast, c2 + nDelta, nAt - 1 ) )
+      ENDIF
+      a1[ n ] := c1
+      a2[ n ] := c2
+      RETURN { "A", a1, a2 }
+   ENDSWITCH
+   y := AClone( x )
+   IF x[ 1 ] == "F"
+      y[ 3 ] := AClone( x[ 3 ] )
+      FOR i := 1 TO Len( y[ 3 ] )
+         y[ 3 ][ i ] := DC_AstAdjust( x[ 3 ][ i ], lRows, nAt, nDelta )
+      NEXT
+      RETURN y
+   ENDIF
+   FOR i := 2 TO Len( y )
+      IF HB_ISARRAY( y[ i ] )
+         y[ i ] := DC_AstAdjust( x[ i ], lRows, nAt, nDelta )
+      ENDIF
+   NEXT
+RETURN y
+
+/* Move: references to cells inside aSrc { c1, r1, c2, r2 } follow them by nDC / nDR */
+FUNCTION DC_AstMoveRefs( x, aSrc, nDC, nDR )
+
+   LOCAL y, i, bIn := {| a | a[ 1 ] >= aSrc[ 1 ] .AND. a[ 1 ] <= aSrc[ 3 ] .AND. a[ 2 ] >= aSrc[ 2 ] .AND. a[ 2 ] <= aSrc[ 4 ] }
+   LOCAL bMove := {| a, b | b := AClone( a ), b[ 1 ] += nDC, b[ 2 ] += nDR, b }
+
+   IF HB_ISNIL( x )
+      RETURN NIL
+   ENDIF
+   SWITCH x[ 1 ]
+   CASE "R"
+      RETURN IIF( Eval( bIn, x[ 2 ] ), { "R", Eval( bMove, x[ 2 ] ) }, x )
+   CASE "A"
+      RETURN IIF( Eval( bIn, x[ 2 ] ) .AND. Eval( bIn, x[ 3 ] ), { "A", Eval( bMove, x[ 2 ] ), Eval( bMove, x[ 3 ] ) }, x )
+   ENDSWITCH
+   y := AClone( x )
+   IF x[ 1 ] == "F"
+      y[ 3 ] := AClone( x[ 3 ] )
+      FOR i := 1 TO Len( y[ 3 ] )
+         y[ 3 ][ i ] := DC_AstMoveRefs( x[ 3 ][ i ], aSrc, nDC, nDR )
+      NEXT
+      RETURN y
+   ENDIF
+   FOR i := 2 TO Len( y )
+      IF HB_ISARRAY( y[ i ] )
+         y[ i ] := DC_AstMoveRefs( x[ i ], aSrc, nDC, nDR )
+      ENDIF
+   NEXT
+RETURN y
+
+/* "B5", "A1:B5", "A1..B5", "A1.B5", "$A$1:$B$5" -> { c1, r1, c2, r2 }, NIL when not a range */
+FUNCTION DC_ParseArea( cText )
+   LOCAL c := StrTran( Upper( AllTrim( cText ) ), "$", "" ), n, a1, a2
+   c := StrTran( StrTran( c, "..", ":" ), ".", ":" )
+   n := At( ":", c )
+   IF n == 0
+      a1 := DC_ParseRef( c )
+      RETURN IIF( HB_ISNIL( a1 ), NIL, { a1[ 1 ], a1[ 2 ], a1[ 1 ], a1[ 2 ] } )
+   ENDIF
+   a1 := DC_ParseRef( Left( c, n - 1 ) )
+   a2 := DC_ParseRef( SubStr( c, n + 1 ) )
+   IF HB_ISNIL( a1 ) .OR. HB_ISNIL( a2 )
+      RETURN NIL
+   ENDIF
+RETURN { Min( a1[ 1 ], a2[ 1 ] ), Min( a1[ 2 ], a2[ 2 ] ), Max( a1[ 1 ], a2[ 1 ] ), Max( a1[ 2 ], a2[ 2 ] ) }
+
+/* { c1, r1, c2, r2 } -> "A1:B5" (lLotus: "A1..B5"); one cell: "A1" */
+FUNCTION DC_AreaText( aA, lLotus )
+   IF aA[ 1 ] == aA[ 3 ] .AND. aA[ 2 ] == aA[ 4 ]
+      RETURN DC_CellName( aA[ 1 ], aA[ 2 ] )
+   ENDIF
+RETURN DC_CellName( aA[ 1 ], aA[ 2 ] ) + IIF( hb_defaultValue( lLotus, .F. ), "..", ":" ) + DC_CellName( aA[ 3 ], aA[ 4 ] )

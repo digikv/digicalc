@@ -131,10 +131,106 @@ PROCEDURE Main()
    Eq( DC_AstText( DC_AstShift( DC_Parse( "A1+$B$1+C$2+$D3" ), 1, 2 ) ), "B3+$B$1+D$2+$D5" )
    Eq( DC_AstText( DC_AstShift( DC_Parse( "SUM(A1:A5)" ), 0, -1 ) ), "SUM(#REF!)" )
 
+   ? "== structure: insert / delete, copy, move, sort, names"
+   oS := DCSheet():new()
+   Set1( oS, "A1", "1" ) ; Set1( oS, "A2", "2" ) ; Set1( oS, "A3", "3" )
+   Set1( oS, "B1", "=SUM(A1:A3)" )
+   Set1( oS, "B2", "=A3*10" )
+   oS:shiftCells( .T., 2, 1 )                 /* a row before row 2 */
+   Eq( oS:input( 2, 1 ), "=SUM(A1:A4)" )
+   Eq( oS:input( 2, 3 ), "=A4*10" )
+   Eq( V( oS, "B1" ), 6 )
+   oS:shiftCells( .T., 4, -1 )                /* row 4 (the old A3) deleted */
+   Eq( oS:input( 2, 1 ), "=SUM(A1:A3)" )
+   Eq( oS:input( 2, 3 ), "=#REF!*10" )
+   Eq( V( oS, "B1" ), 3 )
+   oS:shiftCells( .F., 1, 1 )                 /* a column before A */
+   Eq( oS:input( 3, 1 ), "=SUM(B1:B3)" )
+   oS := DCSheet():new()
+   Set1( oS, "A1", "5" ) ; Set1( oS, "B1", "=A1*2" )
+   oS:copyArea( { 2, 1, 2, 1 }, { 2, 2, 2, 4 } )   /* B1 down to B2:B4 */
+   Eq( oS:input( 2, 3 ), "=A3*2" )
+   Set1( oS, "A3", "7" )
+   Eq( V( oS, "B3" ), 14 )
+   oS:moveArea( { 1, 1, 1, 1 }, 4, 1 )        /* A1 -> D1: B1 follows */
+   Eq( oS:input( 2, 1 ), "=D1*2" )
+   Eq( V( oS, "B1" ), 10 )
+   oS := DCSheet():new()
+   Set1( oS, "A1", "c" ) ; Set1( oS, "B1", "3" )
+   Set1( oS, "A2", "a" ) ; Set1( oS, "B2", "1" )
+   Set1( oS, "A3", "b" ) ; Set1( oS, "B3", "2" )
+   Set1( oS, "C1", "=B1*10" ) ; Set1( oS, "C2", "=B2*10" ) ; Set1( oS, "C3", "=B3*10" )
+   oS:sortArea( { 1, 1, 3, 3 }, 1, .F. )
+   Eq( V( oS, "A1" ) + V( oS, "A2" ) + V( oS, "A3" ), "abc" )
+   Eq( V( oS, "C1" ), 10 )
+   Eq( oS:input( 3, 3 ), "=B3*10" )
+   oS:setName( "prices", { 2, 1, 2, 3 } )
+   Eq( F( oS, "SUM(prices)" ), 6 )
+   Eq( F( oS, "@MAX(PRICES)" ), 3 )
+   Set1( oS, "B1", "100" )
+   Eq( V( oS, "Z99" ), 100 )                 /* @MAX(PRICES) follows the name */
+   Eq( hb_ValToExp( DC_ParseArea( "a1..c5" ) ), hb_ValToExp( { 1, 1, 3, 5 } ) )
+   Eq( hb_ValToExp( DC_ParseArea( "$B$2" ) ), hb_ValToExp( { 2, 2, 2, 2 } ) )
+
+   ? "== files: .xlsx and .csv"
+   FileTests()
+
    ?
    ? "ok:", s_nOk, " failed:", s_nBad
    ?
    ErrorLevel( IIF( s_nBad == 0, 0, 1 ) )
+
+   RETURN
+
+STATIC PROCEDURE FileTests()
+
+   LOCAL oS := DCSheet():new( "Data" ), cErr := "", aBook, oL, cX := hb_DirTemp() + "dctest.xlsx", cC := hb_DirTemp() + "dctest.csv"
+
+   Set1( oS, "A1", "Item" )   ; Set1( oS, "B1", "Price" )
+   Set1( oS, "A2", "Šljive" ) ; Set1( oS, "B2", "1234.5" )
+   Set1( oS, "A3", 'Kruške; "Viljamovka"' ) ; Set1( oS, "B3", "10" )
+   Set1( oS, "B4", "@SUM(B2..B3)" )
+   Set1( oS, "C2", "=DATE(2026,11,25)" )
+   oS:setFormat( 2, 4, ",2" )
+   oS:setFormat( 3, 2, "D1" )
+   Set1( oS, "A5", '"Right' )
+   oS:setColWidth( 1, 22 )
+
+   Eq( DC_SaveXlsx( cX, { oS }, @cErr ), .T. )
+   IF ! Empty( cErr )
+      ? "  save:", cErr
+   ENDIF
+   aBook := DC_LoadXlsx( cX, @cErr )
+   IF HB_ISNIL( aBook )
+      ? "  load:", cErr
+      s_nBad++
+   ELSE
+      oL := aBook[ 1 ]
+      Eq( oL:cName, "Data" )
+      Eq( V( oL, "A2" ), "Šljive" )
+      Eq( V( oL, "B2" ), 1234.5 )
+      Eq( oL:input( 2, 4 ), "=SUM(B2:B3)" )
+      Eq( V( oL, "B4" ), 1244.5 )               /* computed again: Excel's value is not in the file */
+      Eq( oL:cell( 2, 4 )[ CELL_FMT ], ",2" )
+      Eq( oL:cell( 3, 2 )[ CELL_FMT ], "D1" )
+      Eq( V( oL, "C2" ), 46351 )
+      Eq( oL:cell( 1, 5 )[ CELL_ALIGN ], "R" )
+      Eq( oL:colWidth( 1 ), 22 )
+      Eq( oL:lModified, .F. )
+   ENDIF
+
+   Eq( DC_SaveCsv( cC, oS, ";", @cErr ), .T. )
+   oL := DC_LoadCsv( cC, @cErr )
+   IF HB_ISNIL( oL )
+      ? "  csv:", cErr
+      s_nBad++
+   ELSE
+      Eq( V( oL, "A3" ), 'Kruške; "Viljamovka"' )
+      Eq( V( oL, "B2" ), 1234.5 )
+      Eq( V( oL, "B4" ), 1244.5 )
+   ENDIF
+   FErase( cX )
+   FErase( cC )
 
    RETURN
 

@@ -15,6 +15,9 @@
 #define CELL_AST     3              /* the formula, NIL for a constant */
 #define CELL_FMT     4              /* "" = the sheet's; "F2" "C2" ",2" "P1" "G" "D1".."D5" "T" "H" */
 #define CELL_ALIGN   5              /* "" = numbers right, text left; "L" "R" "C" */
-#define CELL_LEN     5
+#define CELL_RAW     6              /* a formula from a file that DigiCalc does not parse
+                                       (Sheet2!A1 ...): kept as text, written back; the
+                                       value is the one in the file */
+#define CELL_LEN     6
 
 #endif

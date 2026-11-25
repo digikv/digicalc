@@ -51,6 +51,15 @@ CREATE CLASS DCSheet
    METHOD areaValues( a1, a2 )
    METHOD areaMatrix( a1, a2 )
 
+   METHOD rebuildDeps()
+   METHOD shiftCells( lRows, nAt, nDelta )
+   METHOD copyArea( aSrc, nToCol, nToRow )
+   METHOD moveArea( aSrc, nToCol, nToRow )
+   METHOD sortArea( aA, nKeyCol, lDesc )
+   METHOD fillArea( aA, nStart, nStep )
+   METHOD setName( cName, aA )
+   METHOD putRaw( nCol, nRow, aC )
+
    METHOD unlink( nKey )
    METHOD link( nKey, xAst )
    METHOD dependents( nKey )
@@ -170,6 +179,9 @@ METHOD setCell( nCol, nRow, xValue, cFormula ) CLASS DCSheet
       aC[ CELL_AST ] := xAst
       aC[ CELL_INPUT ] := "=" + DC_AstText( xAst )
       ::link( nKey, xAst )
+   ELSEIF ! Empty( cFormula )
+      aC[ CELL_RAW ] := cFormula
+      aC[ CELL_INPUT ] := "=" + cFormula
    ELSE
       aC[ CELL_INPUT ] := IIF( HB_ISSTRING( xValue ), xValue, DC_ToText( xValue ) )
    ENDIF
@@ -258,10 +270,15 @@ METHOD unlink( nKey ) CLASS DCSheet
    NEXT
 RETURN NIL
 
-/* remember what the formula in nKey uses */
+/* remember what the formula in nKey uses (a name: what it stands for) */
 METHOD link( nKey, xAst ) CLASS DCSheet
-   LOCAL x, k
-   FOR EACH x IN DC_AstRefs( xAst )
+   LOCAL x, k, aRefs := DC_AstRefs( xAst )
+   FOR EACH x IN AClone( aRefs )
+      IF x[ 1 ] == "NM" .AND. hb_HHasKey( ::hNames, x[ 2 ] )
+         DC_AstRefs( ::hNames[ x[ 2 ] ], aRefs )
+      ENDIF
+   NEXT
+   FOR EACH x IN aRefs
       DO CASE
       CASE x[ 1 ] == "R"
          k := DC_Key( x[ 2 ][ 1 ], x[ 2 ][ 2 ] )
@@ -287,6 +304,242 @@ METHOD dependents( nKey ) CLASS DCSheet
       ENDIF
    NEXT
 RETURN aOut
+
+/* all the dependencies again (after rows / columns / cells moved) */
+METHOD rebuildDeps() CLASS DCSheet
+   LOCAL k
+   ::hDeps := { => }
+   ::aAreaDeps := {}
+   FOR EACH k IN hb_HKeys( ::hCells )
+      IF ! HB_ISNIL( ::hCells[ k ][ CELL_AST ] )
+         ::link( k, ::hCells[ k ][ CELL_AST ] )
+      ENDIF
+   NEXT
+RETURN NIL
+
+/* a cell as it is (copy / move / files): the formula text from its AST */
+METHOD putRaw( nCol, nRow, aC ) CLASS DCSheet
+   LOCAL nKey := DC_Key( nCol, nRow )
+   IF HB_ISNIL( aC )
+      IF hb_HHasKey( ::hCells, nKey )
+         hb_HDel( ::hCells, nKey )
+      ENDIF
+      RETURN NIL
+   ENDIF
+   IF ! HB_ISNIL( aC[ CELL_AST ] )
+      aC[ CELL_INPUT ] := "=" + DC_AstText( aC[ CELL_AST ] )
+   ENDIF
+   ::hCells[ nKey ] := aC
+RETURN NIL
+
+/* insert (nDelta > 0) or delete (nDelta < 0) rows / columns at nAt */
+METHOD shiftCells( lRows, nAt, nDelta ) CLASS DCSheet
+
+   LOCAL hNew := { => }, k, aC, nC, nR, n, hW, nLast := nAt - nDelta - 1, cName
+
+   FOR EACH k IN hb_HKeys( ::hCells )
+      aC := ::hCells[ k ]
+      nC := DC_KeyCol( k )
+      nR := DC_KeyRow( k )
+      n := IIF( lRows, nR, nC )
+      IF nDelta < 0 .AND. n >= nAt .AND. n <= nLast
+         LOOP                                       /* deleted */
+      ENDIF
+      IF n >= nAt
+         n += nDelta
+      ENDIF
+      IF n < 1 .OR. n > IIF( lRows, DC_MAXROW, DC_MAXCOL )
+         LOOP
+      ENDIF
+      IF ! HB_ISNIL( aC[ CELL_AST ] )
+         aC[ CELL_AST ] := DC_AstAdjust( aC[ CELL_AST ], lRows, nAt, nDelta )
+         aC[ CELL_INPUT ] := "=" + DC_AstText( aC[ CELL_AST ] )
+      ENDIF
+      hNew[ IIF( lRows, DC_Key( nC, n ), DC_Key( n, nR ) ) ] := aC
+   NEXT
+   ::hCells := hNew
+   FOR EACH cName IN hb_HKeys( ::hNames )
+      ::hNames[ cName ] := DC_AstAdjust( ::hNames[ cName ], lRows, nAt, nDelta )
+   NEXT
+   IF ! lRows
+      hW := { => }
+      FOR EACH k IN hb_HKeys( ::hColW )
+         IF nDelta < 0 .AND. k >= nAt .AND. k <= nLast
+            LOOP
+         ENDIF
+         hW[ IIF( k >= nAt, k + nDelta, k ) ] := ::hColW[ k ]
+      NEXT
+      ::hColW := hW
+   ENDIF
+   ::rebuildDeps()
+   ::recalcAll()
+   ::lModified := .T.
+
+RETURN NIL
+
+/* Copy: the cells of aSrc to nToCol / nToRow (top left); relative references
+   move with them. nToCol may be a target range { c1, r1, c2, r2 }: the source
+   is repeated over it (one cell copied down a column, as 1-2-3). */
+METHOD copyArea( aSrc, nToCol, nToRow ) CLASS DCSheet
+
+   LOCAL aTo, nW := aSrc[ 3 ] - aSrc[ 1 ] + 1, nH := aSrc[ 4 ] - aSrc[ 2 ] + 1, aCopy := {}, a, nC, nR, aC, nTC, nTR
+   LOCAL aKeys := {}
+
+   IF HB_ISARRAY( nToCol )
+      aTo := nToCol
+   ELSE
+      aTo := { nToCol, nToRow, nToCol + nW - 1, nToRow + nH - 1 }
+   ENDIF
+   /* the source first: it may overlap the target */
+   FOR nR := aSrc[ 2 ] TO aSrc[ 4 ]
+      FOR nC := aSrc[ 1 ] TO aSrc[ 3 ]
+         AAdd( aCopy, { nC - aSrc[ 1 ], nR - aSrc[ 2 ], ::cell( nC, nR ) } )
+      NEXT
+   NEXT
+   FOR nTR := aTo[ 2 ] TO aTo[ 4 ] STEP nH
+      FOR nTC := aTo[ 1 ] TO aTo[ 3 ] STEP nW
+         FOR EACH a IN aCopy
+            nC := nTC + a[ 1 ]
+            nR := nTR + a[ 2 ]
+            IF nC > DC_MAXCOL .OR. nR > DC_MAXROW
+               LOOP
+            ENDIF
+            ::unlink( DC_Key( nC, nR ) )
+            IF HB_ISNIL( a[ 3 ] )
+               ::putRaw( nC, nR, NIL )
+            ELSE
+               aC := AClone( a[ 3 ] )
+               IF ! HB_ISNIL( aC[ CELL_AST ] )
+                  aC[ CELL_AST ] := DC_AstShift( aC[ CELL_AST ], nC - ( aSrc[ 1 ] + a[ 1 ] ), nR - ( aSrc[ 2 ] + a[ 2 ] ) )
+               ENDIF
+               ::putRaw( nC, nR, aC )
+               IF ! HB_ISNIL( aC[ CELL_AST ] )
+                  ::link( DC_Key( nC, nR ), aC[ CELL_AST ] )
+               ENDIF
+            ENDIF
+            AAdd( aKeys, DC_Key( nC, nR ) )
+         NEXT
+      NEXT
+   NEXT
+   ::lModified := .T.
+   ::recalc( aKeys )
+
+RETURN NIL
+
+/* Move: the cells of aSrc to nToCol / nToRow; every reference to them follows */
+METHOD moveArea( aSrc, nToCol, nToRow ) CLASS DCSheet
+
+   LOCAL nDC := nToCol - aSrc[ 1 ], nDR := nToRow - aSrc[ 2 ], aMove := {}, a, nC, nR, k, aC, cName
+
+   FOR nR := aSrc[ 2 ] TO aSrc[ 4 ]
+      FOR nC := aSrc[ 1 ] TO aSrc[ 3 ]
+         k := DC_Key( nC, nR )
+         IF hb_HHasKey( ::hCells, k )
+            AAdd( aMove, { nC + nDC, nR + nDR, ::hCells[ k ] } )
+            hb_HDel( ::hCells, k )
+         ENDIF
+      NEXT
+   NEXT
+   /* the target cells are overwritten */
+   FOR nR := aSrc[ 2 ] + nDR TO aSrc[ 4 ] + nDR
+      FOR nC := aSrc[ 1 ] + nDC TO aSrc[ 3 ] + nDC
+         k := DC_Key( nC, nR )
+         IF hb_HHasKey( ::hCells, k )
+            hb_HDel( ::hCells, k )
+         ENDIF
+      NEXT
+   NEXT
+   FOR EACH a IN aMove
+      IF a[ 1 ] >= 1 .AND. a[ 2 ] >= 1 .AND. a[ 1 ] <= DC_MAXCOL .AND. a[ 2 ] <= DC_MAXROW
+         ::hCells[ DC_Key( a[ 1 ], a[ 2 ] ) ] := a[ 3 ]
+      ENDIF
+   NEXT
+   FOR EACH k IN hb_HKeys( ::hCells )
+      aC := ::hCells[ k ]
+      IF ! HB_ISNIL( aC[ CELL_AST ] )
+         aC[ CELL_AST ] := DC_AstMoveRefs( aC[ CELL_AST ], aSrc, nDC, nDR )
+         aC[ CELL_INPUT ] := "=" + DC_AstText( aC[ CELL_AST ] )
+      ENDIF
+   NEXT
+   FOR EACH cName IN hb_HKeys( ::hNames )
+      ::hNames[ cName ] := DC_AstMoveRefs( ::hNames[ cName ], aSrc, nDC, nDR )
+   NEXT
+   ::rebuildDeps()
+   ::recalcAll()
+   ::lModified := .T.
+
+RETURN NIL
+
+/* Data Sort: the rows of aA by the column nKeyCol; formulas move with their rows */
+METHOD sortArea( aA, nKeyCol, lDesc ) CLASS DCSheet
+
+   LOCAL aRows := {}, nR, nC, aRow, a, nNew, aC
+
+   FOR nR := aA[ 2 ] TO aA[ 4 ]
+      aRow := { nR, ::value( nKeyCol, nR ), {} }
+      FOR nC := aA[ 1 ] TO aA[ 3 ]
+         AAdd( aRow[ 3 ], ::cell( nC, nR ) )
+      NEXT
+      AAdd( aRows, aRow )
+   NEXT
+   ASort( aRows, , , {| x, y | DC_SortLess( x[ 2 ], y[ 2 ], lDesc ) } )
+   FOR EACH a IN aRows
+      nNew := aA[ 2 ] + a:__enumIndex() - 1
+      FOR nC := aA[ 1 ] TO aA[ 3 ]
+         aC := a[ 3 ][ nC - aA[ 1 ] + 1 ]
+         IF ! HB_ISNIL( aC ) .AND. ! HB_ISNIL( aC[ CELL_AST ] ) .AND. nNew != a[ 1 ]
+            aC := AClone( aC )
+            aC[ CELL_AST ] := DC_AstShift( aC[ CELL_AST ], 0, nNew - a[ 1 ] )
+         ENDIF
+         ::putRaw( nC, nNew, aC )
+      NEXT
+   NEXT
+   ::rebuildDeps()
+   ::recalcAll()
+   ::lModified := .T.
+
+RETURN NIL
+
+/* Data Fill: numbers from nStart by nStep, down the columns */
+METHOD fillArea( aA, nStart, nStep ) CLASS DCSheet
+   LOCAL nC, nR, n := nStart
+   ::lAutoCalc := .F.
+   FOR nC := aA[ 1 ] TO aA[ 3 ]
+      FOR nR := aA[ 2 ] TO aA[ 4 ]
+         ::setInput( nC, nR, DC_NumText( n ) )
+         n += nStep
+      NEXT
+   NEXT
+   ::lAutoCalc := .T.
+   ::recalcAll()
+RETURN NIL
+
+/* a name for a range (NIL aA: the name is deleted) */
+METHOD setName( cName, aA ) CLASS DCSheet
+   cName := Upper( AllTrim( cName ) )
+   IF HB_ISNIL( aA )
+      IF hb_HHasKey( ::hNames, cName )
+         hb_HDel( ::hNames, cName )
+      ENDIF
+   ELSEIF aA[ 1 ] == aA[ 3 ] .AND. aA[ 2 ] == aA[ 4 ]
+      ::hNames[ cName ] := { "R", { aA[ 1 ], aA[ 2 ], .T., .T. } }
+   ELSE
+      ::hNames[ cName ] := { "A", { aA[ 1 ], aA[ 2 ], .T., .T. }, { aA[ 3 ], aA[ 4 ], .T., .T. } }
+   ENDIF
+   ::rebuildDeps()
+   ::recalcAll()
+   ::lModified := .T.
+RETURN NIL
+
+/* sorting: numbers before texts, empty cells last (both ways) */
+FUNCTION DC_SortLess( a, b, lDesc )
+   IF HB_ISNIL( a ) .OR. HB_ISNIL( b )
+      RETURN ! HB_ISNIL( a ) .AND. HB_ISNIL( b )
+   ENDIF
+   IF DC_IsErr( a ) .OR. DC_IsErr( b )
+      RETURN ! DC_IsErr( a )
+   ENDIF
+RETURN IIF( lDesc, DC_Compare( a, b ) > 0, DC_Compare( a, b ) < 0 )
 
 /*------------------------------------------------------------ recalculation */
 

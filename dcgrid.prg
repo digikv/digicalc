@@ -57,6 +57,9 @@ CREATE CLASS HTSheet FROM HTWidget
    VAR bSlash                         /* {|| } the / menu */
    VAR bMenuLine                      /* {| oSheetWidget, nRow | } paints rows 1-2 while the / menu is open */
    VAR lMenu     INIT .F.
+   VAR bMenuKey                       /* {| nKey | } a key while the / menu is open */
+   VAR bSheet                         /* {| nStep | } Ctrl-PgDn / Ctrl-PgUp: the next / previous sheet */
+   VAR lRangePrompt INIT .F.          /* the prompt asks for a range: the arrows point */
    VAR lDrag     INIT .F.             /* the left button is down: moving selects */
 
    METHOD new( parent )
@@ -80,7 +83,7 @@ CREATE CLASS HTSheet FROM HTWidget
    METHOD editCell()
    METHOD commit( nThenKey )
    METHOD cancel()
-   METHOD prompt( cPrompt, cDefault, bDone )
+   METHOD prompt( cPrompt, cDefault, bDone, lRange )
    METHOD message( cText )
    METHOD entryKey( nKey, lShift )
    METHOD wantsPoint()
@@ -396,6 +399,13 @@ METHOD PROCEDURE keyEvent( keyEvent ) CLASS HTSheet
    ENDIF
    ::lEnd := .F.
 
+   IF ::lMenu .AND. HB_ISEVALITEM( ::bMenuKey )
+      keyEvent:accept()
+      Eval( ::bMenuKey, nKey )
+      ::refresh()
+      RETURN
+   ENDIF
+
    /* typing, editing, pointing, a prompt */
    IF !( ::cMode == "READY" .OR. ::cMode == "ERROR" )
       IF ::entryKey( nKey, lShift )
@@ -453,6 +463,12 @@ METHOD PROCEDURE keyEvent( keyEvent ) CLASS HTSheet
       ::nLeft := 1
       ::moveTo( 1, 1, lShift )
       EXIT
+   CASE K_CTRL_PGDN
+   CASE K_CTRL_PGUP
+      IF HB_ISEVALITEM( ::bSheet )
+         Eval( ::bSheet, IIF( nKey == K_CTRL_PGDN, 1, -1 ) )
+      ENDIF
+      EXIT
    CASE K_END
       ::lEnd := .T.
       EXIT
@@ -506,15 +522,16 @@ RETURN
 /* a key while typing; .F. when it is not used */
 METHOD entryKey( nKey, lShift ) CLASS HTSheet
 
-   LOCAL cChar
+   LOCAL cChar, bDone
 
    /* a prompt (F5, file names ...): only the line */
    IF ! Empty( ::cPrompt )
       SWITCH nKey
       CASE K_ENTER
          cChar := ::cBuf
-         ::cancel()
-         Eval( ::bPrompt, cChar )
+         bDone := ::bPrompt
+         ::cancel()                          /* first: the block may ask the next question */
+         Eval( bDone, cChar )
          RETURN .T.
       CASE K_ESC
          ::cancel()
@@ -569,7 +586,7 @@ METHOD entryKey( nKey, lShift ) CLASS HTSheet
    CASE K_PGDN
    CASE K_TAB
    CASE K_SH_TAB
-      IF Empty( ::cPrompt ) .AND. ::wantsPoint()
+      IF ( Empty( ::cPrompt ) .AND. ::wantsPoint() ) .OR. ::lRangePrompt
          ::pointMove( nKey, lShift )
          RETURN .T.
       ENDIF
@@ -579,7 +596,7 @@ METHOD entryKey( nKey, lShift ) CLASS HTSheet
       RETURN .T.
    CASE K_LEFT
    CASE K_RIGHT
-      IF Empty( ::cPrompt ) .AND. ::wantsPoint()
+      IF ( Empty( ::cPrompt ) .AND. ::wantsPoint() ) .OR. ::lRangePrompt
          ::pointMove( nKey, lShift )
          RETURN .T.
       ENDIF
@@ -639,7 +656,8 @@ METHOD pointMove( nKey, lShift ) CLASS HTSheet
       ::nPtCol := ::nCol
       ::nPtRow := ::nRow
       ::nPtAncCol := ::nPtAncRow := NIL
-      ::nPtStart := Len( ::cBuf ) + 1
+      /* a range prompt: the pointed range replaces the text */
+      ::nPtStart := IIF( ::lRangePrompt, 1, Len( ::cBuf ) + 1 )
    ENDIF
    IF nKey != 0
       IF lShift .AND. HB_ISNIL( ::nPtAncCol )
@@ -663,7 +681,7 @@ RETURN NIL
 
 /* the pointed cell or range, as the entry is typed (Excel A1:B5, 1-2-3 A1..B5) */
 METHOD pointText() CLASS HTSheet
-   LOCAL lLotus := !( Left( ::cBuf, 1 ) == "=" )
+   LOCAL lLotus := IIF( ::lRangePrompt, ::lLotus, !( Left( ::cBuf, 1 ) == "=" ) )
    IF HB_ISNIL( ::nPtAncCol )
       RETURN DC_CellName( ::nPtCol, ::nPtRow )
    ENDIF
@@ -720,6 +738,7 @@ METHOD commit( nThenKey ) CLASS HTSheet
 RETURN .T.
 
 METHOD cancel() CLASS HTSheet
+   ::lRangePrompt := .F.
    ::cMode := "READY"
    ::lPoint := .F.
    ::cBuf := ""
@@ -729,13 +748,15 @@ METHOD cancel() CLASS HTSheet
 RETURN NIL
 
 /* a question in the entry line: bDone( cAnswer ) after Enter, nothing after Esc */
-METHOD prompt( cPrompt, cDefault, bDone ) CLASS HTSheet
+METHOD prompt( cPrompt, cDefault, bDone, lRange ) CLASS HTSheet
+   ::lRangePrompt := hb_defaultValue( lRange, .F. )
    ::cPrompt := cPrompt
    ::cBuf := hb_defaultValue( cDefault, "" )
    ::nPos := Len( ::cBuf ) + 1
    ::bPrompt := bDone
-   ::cMode := "EDIT"
-   ::cMsg := ""
+   ::cMode := IIF( ::lRangePrompt, "POINT", "EDIT" )
+   ::cEditMode := ::cMode
+   ::cMsg := IIF( ::lRangePrompt, "Type a range, or point at it with the arrows ( . anchors), Enter", "" )
 RETURN NIL
 
 METHOD message( cText ) CLASS HTSheet
@@ -879,9 +900,3 @@ STATIC FUNCTION DC_Sci( x, nDec )
    ENDIF
 RETURN IIF( x < 0, "-", "" ) + LTrim( Str( m, 20, nDec ) ) + "E" + IIF( nExp < 0, "-", "+" ) + StrZero( Abs( nExp ), 2 )
 
-FUNCTION DC_Currency( cNew )
-   STATIC s_cCur := ""
-   IF HB_ISSTRING( cNew )
-      s_cCur := cNew
-   ENDIF
-RETURN s_cCur
